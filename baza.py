@@ -1,46 +1,34 @@
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import streamlit as st
+from db import add_kategoria, delete_kategoria, add_produkt, delete_produkt, get_kategorie, get_produkty
 
-def connect_db():
-    return psycopg2.connect(
-        host="localhost",
-        database="twoja_baza",
-        user="twoj_uzytkownik",
-        password="twoje_haslo"
-    )
+st.title("🗃️ Zarządzanie Bazą Danych")
 
-def add_kategoria(nazwa, opis):
-    with connect_db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("INSERT INTO kategorie (nazwa, opis) VALUES (%s, %s)", (nazwa, opis))
-            conn.commit()
+st.header("Dodaj kategorię")
+nazwa_kat = st.text_input("Nazwa kategorii")
+opis_kat = st.text_area("Opis kategorii")
+if st.button("Dodaj kategorię"):
+    add_kategoria(nazwa_kat, opis_kat)
+    st.success("Dodano kategorię!")
 
-def delete_kategoria(kategoria_id):
-    with connect_db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM kategorie WHERE id = %s", (kategoria_id,))
-            conn.commit()
+st.header("Usuń kategorię")
+kategorie = get_kategorie()
+kat_id = st.selectbox("Wybierz kategorię do usunięcia", [k["id"] for k in kategorie])
+if st.button("Usuń kategorię"):
+    delete_kategoria(kat_id)
+    st.success("Usunięto kategorię!")
 
-def add_produkt(nazwa, opis, kategoria_id):
-    with connect_db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("INSERT INTO produkty (nazwa, opis, kategoria_id) VALUES (%s, %s, %s)", (nazwa, opis, kategoria_id))
-            conn.commit()
+st.header("Dodaj produkt")
+nazwa_prod = st.text_input("Nazwa produktu")
+opis_prod = st.text_area("Opis produktu")
+kat_id_prod = st.selectbox("Kategoria produktu", [k["id"] for k in kategorie])
+if st.button("Dodaj produkt"):
+    add_produkt(nazwa_prod, opis_prod, kat_id_prod)
+    st.success("Dodano produkt!")
 
-def delete_produkt(produkt_id):
-    with connect_db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM produkty WHERE id = %s", (produkt_id,))
-            conn.commit()
+st.header("Usuń produkt")
+produkty = get_produkty()
+prod_id = st.selectbox("Wybierz produkt do usunięcia", [p["id"] for p in produkty])
+if st.button("Usuń produkt"):
+    delete_produkt(prod_id)
+    st.success("Usunięto produkt!")
 
-def get_kategorie():
-    with connect_db() as conn:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT * FROM kategorie")
-            return cur.fetchall()
-
-def get_produkty():
-    with connect_db() as conn:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT * FROM produkty")
-            return cur.fetchall()
