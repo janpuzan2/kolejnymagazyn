@@ -1,7 +1,5 @@
 import streamlit as st
 from supabase import create_client, Client
-import plotly.express as px
-import pandas as pd
 
 # --- KONFIGURACJA POŁĄCZENIA ---
 URL = st.secrets["SUPABASE_URL"]
@@ -17,104 +15,112 @@ def get_product_color(nazwa):
         "ogórek": "#27AE60", "woda": "#3498DB", "ser": "#F1C40F"
     }
     for klucz, kolor in skojarzenia.items():
-        if klucz in nazwa: return kolor
+        if klucz in nazwa:
+            return kolor
     return "#BDC3C7"
 
-st.set_page_config(page_title="Magazyn Pro", layout="wide")
-st.title("🚀 Inteligentny Magazyn")
+# --- KONFIGURACJA STRONY ---
+st.set_page_config(page_title="Magazyn Statystyki", layout="wide")
+st.title("📦 System Zarządzania Magazynem")
 
+# --- POBIERANIE DANYCH ---
 try:
-    # --- POBIERANIE DANYCH ---
-    products_res = supabase.table("produkty").select("*").order("id").execute()
-    categories_res = supabase.table("kategorie").select("*").execute()
+    products = supabase.table("produkty").select("*").order("id").execute()
+    categories = supabase.table("kategorie").select("*").execute()
     
-    df = pd.DataFrame(products_res.data) if products_res.data else pd.DataFrame()
-    cat_map = {c['id']: c['nazwa'] for c in categories_res.data}
+    # --- OBLICZENIA STATYSTYK ---
+    total_items = sum(p['liczba'] for p in products.data) if products.data else 0
+    total_value = sum(p['liczba'] * float(p['cena']) for p in products.data) if products.data else 0.0
 
-    # --- NAGŁÓWEK: STATYSTYKI ---
-    if not df.empty:
-        total_items = df['liczba'].sum()
-        total_value = (df['liczba'] * df['cena'].astype(float)).sum()
-        low_stock_count = df[df['liczba'] < 5].shape[0]
-
-        c_stat1, c_stat2, c_stat3 = st.columns(3)
-        c_stat1.metric("Suma towarów", f"{total_items} szt.")
-        c_stat2.metric("Wartość magazynu", f"{total_value:,.2f} zł")
-        c_stat3.metric("Niski stan (<5 szt.)", f"{low_stock_count} poz.", delta_color="inverse")
-    
+    # --- SEKCJA PODSUMOWANIA ---
+    st.subheader("📊 Statystyki magazynu")
+    col_stat1, col_stat2 = st.columns(2)
+    with col_stat1:
+        st.metric("Suma materiałów (sztuki)", f"{total_items} szt.")
+    with col_stat2:
+        st.metric("Łączna wartość (koszt)", f"{total_value:,.2f} zł")
     st.divider()
 
-    # --- PANEL BOCZNY: FILTRY ---
-    st.sidebar.header("🔍 Szukaj i Filtruj")
-    search_query = st.sidebar.text_input("Szukaj produktu...", "").lower()
-    
-    # --- WYKRES W PANELU BOCZNYM ---
-    if not df.empty:
-        df['kategoria_nazwa'] = df['kategoria_id'].map(cat_map)
-        fig = px.pie(df, names='kategoria_nazwa', values='liczba', title="Rozkład kategorii", hole=0.4)
-        fig.update_layout(showlegend=False, height=250, margin=dict(t=30, b=0, l=0, r=0))
-        st.sidebar.plotly_chart(fig, use_container_width=True)
+    # Zakładki
+    tab1, tab2 = st.tabs(["🛒 Produkty", "📂 Kategorie"])
 
-    tab1, tab2 = st.tabs(["🛒 Lista Towarów", "📂 Kategorie"])
-
+    # --- TABELA PRODUKTY ---
     with tab1:
-        # Filtrowanie danych na żywo
-        filtered_df = df[df['nazwa'].str.lower().contains(search_query)] if not df.empty else df
+        st.header("Lista produktów")
+        if products.data:
+            h1, h2, h3, h4, h5, h6 = st.columns([1, 0.5, 3, 1, 1, 1])
+            h1.write("**ID**")
+            h2.write("**Kolor**")
+            h3.write("**Nazwa**")
+            h4.write("**Cena**")
+            h5.write("**Ilość**")
+            h6.write("**Akcja**")
+            st.divider()
 
-        if not filtered_df.empty:
-            cols = st.columns([1, 0.5, 3, 1, 1, 1])
-            for col, name in zip(cols, ["ID", "Kolor", "Nazwa", "Cena", "Ilość", "Akcja"]):
-                col.write(f"**{name}**")
-            
-            for _, p in filtered_df.iterrows():
+            for p in products.data:
                 p_color = get_product_color(p['nazwa'])
-                is_low = p['liczba'] < 5
+                col1, col_color, col2, col3, col4, col5 = st.columns([1, 0.5, 3, 1, 1, 1])
                 
-                c1, c_col, c2, c3, c4, c5 = st.columns([1, 0.5, 3, 1, 1, 1])
-                c1.write(f"{p['id']}")
-                c_col.markdown(f'<div style="width: 20px; height: 20px; background-color: {p_color}; border-radius: 50%; border: 1px solid #ddd; margin-top: 5px;"></div>', unsafe_allow_html=True)
+                col1.write(f"{p['id']}")
+                col_color.markdown(
+                    f'<div style="width: 20px; height: 20px; background-color: {p_color}; border-radius: 50%; border: 1px solid #ddd; margin-top: 5px;"></div>', 
+                    unsafe_allow_html=True
+                )
+                col2.write(f"**{p['nazwa']}**")
+                col3.write(f"{p['cena']} zł")
+                col4.write(f"{p['liczba']} szt.")
                 
-                # Wyróżnienie nazwy jeśli mało towaru
-                label = f"{p['nazwa']} ⚠️" if is_low else p['nazwa']
-                c2.write(f"**{label}**")
-                
-                c3.write(f"{p['cena']} zł")
-                c4.write(f"{p['liczba']} szt.")
-                
-                if c5.button("🗑️", key=f"del_{p['id']}"):
+                if col5.button("Usuń", key=f"del_p_{p['id']}"):
                     supabase.table("produkty").delete().eq("id", p['id']).execute()
                     st.rerun()
         else:
-            st.warning("Nie znaleziono produktów spełniających kryteria.")
+            st.info("Baza produktów jest pusta.")
 
-        # FORMULARZ DODAWANIA
-        with st.expander("➕ Dodaj nowy przedmiot do bazy"):
-            with st.form("add_p", clear_on_submit=True):
-                ca, cb = st.columns(2)
-                n = ca.text_input("Nazwa")
-                p = ca.number_input("Cena", min_value=0.0)
-                l = cb.number_input("Ilość", min_value=0)
-                cat = cb.selectbox("Kategoria", options=list(cat_map.values()))
-                if st.form_submit_button("Dodaj do magazynu"):
-                    new_id = [k for k, v in cat_map.items() if v == cat][0]
-                    supabase.table("produkty").insert({"nazwa": n, "cena": p, "liczba": l, "kategoria_id": new_id}).execute()
+        st.divider()
+        st.subheader("➕ Dodaj nowy produkt")
+        with st.form("form_add_product", clear_on_submit=True):
+            col_a, col_b = st.columns(2)
+            with col_a:
+                p_name = st.text_input("Nazwa produktu")
+                p_price = st.number_input("Cena (zł)", min_value=0.0, step=0.01)
+            with col_b:
+                p_count = st.number_input("Ilość (szt)", min_value=0, step=1)
+                cat_options = {c['nazwa']: c['id'] for c in categories.data}
+                p_cat_name = st.selectbox("Wybierz kategorię", options=list(cat_options.keys()))
+
+            if st.form_submit_button("Zapisz produkt w bazie"):
+                if p_name:
+                    new_prod = {
+                        "nazwa": p_name,
+                        "liczba": p_count,
+                        "cena": p_price,
+                        "kategoria_id": cat_options[p_cat_name] if p_cat_name else None
+                    }
+                    supabase.table("produkty").insert(new_prod).execute()
+                    st.success(f"Dodano: {p_name}")
+                    st.rerun()
+                else:
+                    st.warning("Uzupełnij nazwę!")
+
+    # --- TABELA KATEGORIE ---
+    with tab2:
+        st.header("Kategorie")
+        if categories.data:
+            for c in categories.data:
+                c1, c2, c3 = st.columns([1, 4, 1])
+                c1.write(f"ID: {c['id']}")
+                c2.write(f"**{c['nazwa']}**")
+                if c3.button("Usuń", key=f"del_c_{c['id']}"):
+                    supabase.table("kategorie").delete().eq("id", c['id']).execute()
+                    st.rerun()
+        
+        st.divider()
+        with st.form("add_cat"):
+            new_cat = st.text_input("Nowa kategoria")
+            if st.form_submit_button("Dodaj"):
+                if new_cat:
+                    supabase.table("kategorie").insert({"nazwa": new_cat}).execute()
                     st.rerun()
 
-    with tab2:
-        st.header("Zarządzanie kategoriami")
-        # Wyświetlanie kategorii i prosty formularz (jak wcześniej)
-        for cid, cname in cat_map.items():
-            cc1, cc2 = st.columns([5, 1])
-            cc1.write(f"📁 {cname}")
-            if cc2.button("Usuń", key=f"dc_{cid}"):
-                supabase.table("kategorie").delete().eq("id", cid).execute()
-                st.rerun()
-        
-        with st.form("new_cat"):
-            nc = st.text_input("Nowa kategoria")
-            if st.form_submit_button("Stwórz"):
-                supabase.table("kategorie").insert({"nazwa": nc}).execute()
-                st.rerun()
-
 except Exception as e:
-    st.error(f"Błąd: {e}")
+    st.error(f"Wystąpił błąd: {e}")
