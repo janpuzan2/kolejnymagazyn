@@ -23,7 +23,7 @@ st.set_page_config(page_title="Magazyn Pro", layout="wide")
 st.title("📦 System Magazynowy")
 
 try:
-    # Pobieranie danych z bazy
+    # Pobieranie danych
     products = supabase.table("produkty").select("*").order("id").execute().data
     categories = supabase.table("kategorie").select("*").execute().data
     cat_map = {c['id']: c['nazwa'] for c in categories}
@@ -54,20 +54,32 @@ try:
         filtered = [p for p in products if search in p['nazwa'].lower()]
 
         if filtered:
-            # Nagłówki tabeli
-            cols = st.columns([1, 0.5, 2.5, 1, 1, 1, 1])
-            for col, h in zip(cols, ["ID", "Kolor", "Nazwa", "Cena", "Ilość", "Status", "Akcja"]):
-                col.write(f"**{h}**")
+            # Nagłówki tabeli (ID, Kolor, Nazwa, Cena, Szybka Edycja, Status, Akcja)
+            cols = st.columns([0.8, 0.5, 2, 1, 1.8, 1, 0.8])
+            header_names = ["ID", "Kolor", "Nazwa", "Cena", "Szybka edycja", "Status", "Akcja"]
+            for col, h in zip(cols, header_names): col.write(f"**{h}**")
             
             for p in filtered:
                 p_color = get_product_color(p['nazwa'])
-                c1, c_col, c2, c3, c4, c_status, c5 = st.columns([1, 0.5, 2.5, 1, 1, 1, 1])
+                c1, c_col, c2, c3, c4, c_status, c5 = st.columns([0.8, 0.5, 2, 1, 1.8, 1, 0.8])
                 
                 c1.write(f"{p['id']}")
                 c_col.markdown(f'<div style="width: 20px; height: 20px; background-color: {p_color}; border-radius: 50%; border: 1px solid #ddd; margin-top: 5px;"></div>', unsafe_allow_html=True)
                 c2.write(f"**{p['nazwa']}**")
                 c3.write(f"{p['cena']} zł")
-                c4.write(f"{p['liczba']} szt.")
+                
+                # --- SZYBKA EDYCJA ILOŚCI (PLUSY I MINUSY) ---
+                with c4:
+                    q1, q_val, q2 = st.columns([1, 1, 1])
+                    if q1.button("➖", key=f"min_{p['id']}"):
+                        new_qty = max(0, p['liczba'] - 1)
+                        supabase.table("produkty").update({"liczba": new_qty}).eq("id", p['id']).execute()
+                        st.rerun()
+                    q_val.write(f"{p['liczba']}")
+                    if q2.button("➕", key=f"pls_{p['id']}"):
+                        new_qty = p['liczba'] + 1
+                        supabase.table("produkty").update({"liczba": new_qty}).eq("id", p['id']).execute()
+                        st.rerun()
                 
                 # Statusy kolorowe
                 if p['liczba'] == 0:
@@ -77,7 +89,7 @@ try:
                 else:
                     c_status.success("OK")
 
-                if c5.button("Usuń", key=f"del_{p['id']}"):
+                if c5.button("🗑️", key=f"del_{p['id']}"):
                     supabase.table("produkty").delete().eq("id", p['id']).execute()
                     st.rerun()
         else:
@@ -89,8 +101,8 @@ try:
             with st.form("add_form", clear_on_submit=True):
                 f1, f2 = st.columns(2)
                 name = f1.text_input("Nazwa produktu")
-                price = f1.number_input("Cena za sztukę", min_value=0.0)
-                qty = f2.number_input("Ilość na start", min_value=0)
+                price = f1.number_input("Cena za sztukę", min_value=0.0, step=0.01)
+                qty = f2.number_input("Ilość na start", min_value=0, step=1)
                 cat = f2.selectbox("Kategoria", options=list(cat_map.values()) if cat_map else ["Brak"])
                 
                 if st.form_submit_button("Zapisz w magazynie"):
@@ -101,6 +113,8 @@ try:
                         }).execute()
                         st.success("Dodano!")
                         st.rerun()
+                    else:
+                        st.error("Nazwa jest wymagana!")
 
     with tab2:
         st.header("Zarządzanie kategoriami")
