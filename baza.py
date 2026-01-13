@@ -6,7 +6,7 @@ URL = st.secrets["SUPABASE_URL"]
 KEY = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(URL, KEY)
 
-# --- FUNKCJA DYNAMICZNYCH KOLORÓW ---
+# --- FUNKCJA KOLORÓW ---
 def get_product_color(nazwa):
     nazwa = nazwa.lower()
     skojarzenia = {
@@ -15,112 +15,98 @@ def get_product_color(nazwa):
         "ogórek": "#27AE60", "woda": "#3498DB", "ser": "#F1C40F"
     }
     for klucz, kolor in skojarzenia.items():
-        if klucz in nazwa:
-            return kolor
+        if klucz in nazwa: return kolor
     return "#BDC3C7"
 
 # --- KONFIGURACJA STRONY ---
-st.set_page_config(page_title="Magazyn Statystyki", layout="wide")
-st.title("📦 System Zarządzania Magazynem")
+st.set_page_config(page_title="Magazyn Interaktywny", layout="wide")
+st.title("📦 Magazyn z Szybką Edycją")
 
-# --- POBIERANIE DANYCH ---
 try:
+    # Pobieranie danych
     products = supabase.table("produkty").select("*").order("id").execute()
     categories = supabase.table("kategorie").select("*").execute()
-    
-    # --- OBLICZENIA STATYSTYK ---
-    total_items = sum(p['liczba'] for p in products.data) if products.data else 0
-    total_value = sum(p['liczba'] * float(p['cena']) for p in products.data) if products.data else 0.0
+    cat_map = {c['id']: c['nazwa'] for c in categories.data}
 
-    # --- SEKCJA PODSUMOWANIA ---
-    st.subheader("📊 Statystyki magazynu")
-    col_stat1, col_stat2 = st.columns(2)
-    with col_stat1:
-        st.metric("Suma materiałów (sztuki)", f"{total_items} szt.")
-    with col_stat2:
-        st.metric("Łączna wartość (koszt)", f"{total_value:,.2f} zł")
+    # --- PODSUMOWANIE (METRYKI) ---
+    total_qty = sum(p['liczba'] for p in products.data) if products.data else 0
+    total_val = sum(p['liczba'] * float(p['cena']) for p in products.data) if products.data else 0.0
+    
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Suma sztuk", f"{total_qty} szt.")
+    m2.metric("Wartość", f"{total_val:,.2f} zł")
+    # Pasek postępu (zakładamy limit magazynu np. 1000 sztuk)
+    limit = 1000
+    m3.write(f"Zapełnienie magazynu ({int(total_qty/limit*100)}%)")
+    m3.progress(min(total_qty / limit, 1.0))
+
     st.divider()
 
-    # Zakładki
-    tab1, tab2 = st.tabs(["🛒 Produkty", "📂 Kategorie"])
+    tab1, tab2 = st.tabs(["🛒 Zarządzanie Towarem", "📂 Kategorie"])
 
-    # --- TABELA PRODUKTY ---
     with tab1:
-        st.header("Lista produktów")
         if products.data:
-            h1, h2, h3, h4, h5, h6 = st.columns([1, 0.5, 3, 1, 1, 1])
-            h1.write("**ID**")
-            h2.write("**Kolor**")
-            h3.write("**Nazwa**")
-            h4.write("**Cena**")
-            h5.write("**Ilość**")
-            h6.write("**Akcja**")
-            st.divider()
-
+            # Nagłówki
+            cols = st.columns([1, 0.5, 2.5, 1, 1.5, 1])
+            header_names = ["ID", "Kolor", "Nazwa", "Cena", "Ilość (Szybka edycja)", "Akcja"]
+            for col, h in zip(cols, header_names): col.write(f"**{h}**")
+            
             for p in products.data:
                 p_color = get_product_color(p['nazwa'])
-                col1, col_color, col2, col3, col4, col5 = st.columns([1, 0.5, 3, 1, 1, 1])
+                c1, c_col, c2, c3, c4, c5 = st.columns([1, 0.5, 2.5, 1, 1.5, 1])
                 
-                col1.write(f"{p['id']}")
-                col_color.markdown(
-                    f'<div style="width: 20px; height: 20px; background-color: {p_color}; border-radius: 50%; border: 1px solid #ddd; margin-top: 5px;"></div>', 
-                    unsafe_allow_html=True
-                )
-                col2.write(f"**{p['nazwa']}**")
-                col3.write(f"{p['cena']} zł")
-                col4.write(f"{p['liczba']} szt.")
+                c1.write(f"{p['id']}")
+                c_col.markdown(f'<div style="width: 20px; height: 20px; background-color: {p_color}; border-radius: 50%; border: 1px solid #ddd; margin-top: 5px;"></div>', unsafe_allow_html=True)
+                c2.write(f"**{p['nazwa']}**")
+                c3.write(f"{p['cena']} zł")
                 
-                if col5.button("Usuń", key=f"del_p_{p['id']}"):
+                # --- SZYBKA EDYCJA ILOŚCI ---
+                with c4:
+                    q1, q_val, q2 = st.columns([1, 1, 1])
+                    if q1.button("➖", key=f"min_{p['id']}"):
+                        new_qty = max(0, p['liczba'] - 1)
+                        supabase.table("produkty").update({"liczba": new_qty}).eq("id", p['id']).execute()
+                        st.rerun()
+                    q_val.write(f"{p['liczba']}")
+                    if q2.button("➕", key=f"pls_{p['id']}"):
+                        new_qty = p['liczba'] + 1
+                        supabase.table("produkty").update({"liczba": new_qty}).eq("id", p['id']).execute()
+                        st.rerun()
+
+                if c5.button("Usuń", key=f"del_{p['id']}"):
                     supabase.table("produkty").delete().eq("id", p['id']).execute()
+                    st.toast(f"Usunięto {p['nazwa']}", icon="🗑️")
                     st.rerun()
         else:
-            st.info("Baza produktów jest pusta.")
+            st.info("Pusto tutaj... dodaj coś!")
 
         st.divider()
-        st.subheader("➕ Dodaj nowy produkt")
-        with st.form("form_add_product", clear_on_submit=True):
-            col_a, col_b = st.columns(2)
-            with col_a:
-                p_name = st.text_input("Nazwa produktu")
-                p_price = st.number_input("Cena (zł)", min_value=0.0, step=0.01)
-            with col_b:
-                p_count = st.number_input("Ilość (szt)", min_value=0, step=1)
-                cat_options = {c['nazwa']: c['id'] for c in categories.data}
-                p_cat_name = st.selectbox("Wybierz kategorię", options=list(cat_options.keys()))
+        with st.expander("➕ Dodaj nowy produkt"):
+            with st.form("new_p", clear_on_submit=True):
+                n = st.text_input("Nazwa")
+                c = st.number_input("Cena", min_value=0.0)
+                l = st.number_input("Ilość", min_value=0)
+                cat = st.selectbox("Kategoria", options=list(cat_map.values()) if cat_map else ["Brak"])
+                if st.form_submit_button("Dodaj produkt"):
+                    if n:
+                        c_id = [k for k, v in cat_map.items() if v == cat][0] if cat_map else None
+                        supabase.table("produkty").insert({"nazwa": n, "cena": c, "liczba": l, "kategoria_id": c_id}).execute()
+                        st.toast("Produkt dodany!", icon="✅")
+                        st.rerun()
 
-            if st.form_submit_button("Zapisz produkt w bazie"):
-                if p_name:
-                    new_prod = {
-                        "nazwa": p_name,
-                        "liczba": p_count,
-                        "cena": p_price,
-                        "kategoria_id": cat_options[p_cat_name] if p_cat_name else None
-                    }
-                    supabase.table("produkty").insert(new_prod).execute()
-                    st.success(f"Dodano: {p_name}")
-                    st.rerun()
-                else:
-                    st.warning("Uzupełnij nazwę!")
-
-    # --- TABELA KATEGORIE ---
     with tab2:
         st.header("Kategorie")
-        if categories.data:
-            for c in categories.data:
-                c1, c2, c3 = st.columns([1, 4, 1])
-                c1.write(f"ID: {c['id']}")
-                c2.write(f"**{c['nazwa']}**")
-                if c3.button("Usuń", key=f"del_c_{c['id']}"):
-                    supabase.table("kategorie").delete().eq("id", c['id']).execute()
-                    st.rerun()
+        for cid, cname in cat_map.items():
+            cc1, cc2 = st.columns([5, 1])
+            cc2.button("Usuń", key=f"dc_{cid}", on_click=lambda id=cid: supabase.table("kategorie").delete().eq("id", id).execute())
+            cc1.write(f"📁 {cname}")
         
-        st.divider()
         with st.form("add_cat"):
-            new_cat = st.text_input("Nowa kategoria")
+            nc = st.text_input("Nowa kategoria")
             if st.form_submit_button("Dodaj"):
-                if new_cat:
-                    supabase.table("kategorie").insert({"nazwa": new_cat}).execute()
+                if nc:
+                    supabase.table("kategorie").insert({"nazwa": nc}).execute()
                     st.rerun()
 
 except Exception as e:
-    st.error(f"Wystąpił błąd: {e}")
+    st.error(f"Coś poszło nie tak: {e}")
