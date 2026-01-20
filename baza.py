@@ -19,8 +19,7 @@ def get_product_color(nazwa):
     return "#BDC3C7"
 
 # --- KONFIGURACJA STRONY ---
-st.set_page_config(page_title="Magazyn Pro", layout="wide")
-st.title("📦 System Magazynowy")
+st.set_page_config(page_title="Magazyn Pro Light", layout="wide", page_icon="📦")
 
 try:
     # Pobieranie danych
@@ -28,109 +27,112 @@ try:
     categories = supabase.table("kategorie").select("*").execute().data
     cat_map = {c['id']: c['nazwa'] for c in categories}
 
-    # --- STATYSTYKI I PASEK ZAPEŁNIENIA ---
+    # --- NAGŁÓWEK I STATYSTYKI ---
+    st.title("📦 System Magazynowy")
+    
     total_qty = sum(p['liczba'] for p in products) if products else 0
     total_val = sum(p['liczba'] * float(p['cena']) for p in products) if products else 0.0
-    
-    col_m1, col_m2, col_m3 = st.columns([1, 1, 2])
-    col_m1.metric("Suma produktów", f"{total_qty} szt.")
-    col_m2.metric("Wartość towaru", f"{total_val:,.2f} zł")
-    
-    # Pasek zapełnienia (limit 1000 sztuk)
-    limit = 1000
-    percent = min(int(total_qty / limit * 100), 100)
-    col_m3.write(f"Zapełnienie magazynu: {percent}%")
-    col_m3.progress(total_qty / limit if total_qty < limit else 1.0)
+
+    m1, m2, m3 = st.columns(3)
+    with m1:
+        st.info(f"**Suma sztuk:** {total_qty}")
+    with m2:
+        st.success(f"**Wartość:** {total_val:,.2f} zł")
+    with m3:
+        # Dynamiczny alert jeśli magazyn jest prawie pełny
+        percent = min(int(total_qty / 1000 * 100), 100)
+        st.warning(f"**Zapełnienie:** {percent}%")
 
     st.divider()
 
-    # --- WYSZUKIWARKA ---
-    search = st.text_input("🔍 Szybkie szukanie produktu...", "").lower()
-
-    tab1, tab2 = st.tabs(["🛒 Lista Towarów", "📂 Kategorie"])
+    # --- TABS ---
+    tab1, tab2, tab3 = st.tabs(["🛒 Inwentarz", "📂 Kategorie", "📊 Prosta Analityka"])
 
     with tab1:
-        # Filtrowanie listy
+        search = st.text_input("🔍 Szukaj produktu...", "").lower()
         filtered = [p for p in products if search in p['nazwa'].lower()]
 
         if filtered:
-            # Nagłówki tabeli (ID, Kolor, Nazwa, Cena, Szybka Edycja, Status, Akcja)
-            cols = st.columns([0.8, 0.5, 2, 1, 1.8, 1, 0.8])
-            header_names = ["ID", "Kolor", "Nazwa", "Cena", "Szybka edycja", "Status", "Akcja"]
-            for col, h in zip(cols, header_names): col.write(f"**{h}**")
-            
+            # Nagłówki
+            cols = st.columns([0.5, 0.5, 2, 1, 1.5, 1, 0.5])
+            titles = ["ID", "Kol.", "Nazwa", "Cena", "Ilość", "Status", ""]
+            for col, t in zip(cols, titles): col.write(f"**{t}**")
+
             for p in filtered:
                 p_color = get_product_color(p['nazwa'])
-                c1, c_col, c2, c3, c4, c_status, c5 = st.columns([0.8, 0.5, 2, 1, 1.8, 1, 0.8])
+                c1, c_col, c2, c3, c4, c_status, c5 = st.columns([0.5, 0.5, 2, 1, 1.5, 1, 0.5])
                 
-                c1.write(f"{p['id']}")
-                c_col.markdown(f'<div style="width: 20px; height: 20px; background-color: {p_color}; border-radius: 50%; border: 1px solid #ddd; margin-top: 5px;"></div>', unsafe_allow_html=True)
-                c2.write(f"**{p['nazwa']}**")
+                c1.write(f"`{p['id']}`")
+                c_col.markdown(f'<div style="width:15px; height:15px; background:{p_color}; border-radius:3px; margin-top:10px; border:1px solid #444"></div>', unsafe_allow_html=True)
+                
+                # Podświetlenie jeśli zero
+                label = f"**{p['nazwa']}**" if p['liczba'] > 0 else f"~~{p['nazwa']}~~ (BRAK)"
+                c2.write(label)
+                
                 c3.write(f"{p['cena']} zł")
                 
-                # --- SZYBKA EDYCJA ILOŚCI (PLUSY I MINUSY) ---
                 with c4:
-                    q1, q_val, q2 = st.columns([1, 1, 1])
-                    if q1.button("➖", key=f"min_{p['id']}"):
-                        new_qty = max(0, p['liczba'] - 1)
-                        supabase.table("produkty").update({"liczba": new_qty}).eq("id", p['id']).execute()
+                    q_min, q_val, q_pls = st.columns([1,1,1])
+                    if q_min.button("−", key=f"m_{p['id']}"):
+                        supabase.table("produkty").update({"liczba": max(0, p['liczba'] - 1)}).eq("id", p['id']).execute()
                         st.rerun()
                     q_val.write(f"{p['liczba']}")
-                    if q2.button("➕", key=f"pls_{p['id']}"):
-                        new_qty = p['liczba'] + 1
-                        supabase.table("produkty").update({"liczba": new_qty}).eq("id", p['id']).execute()
+                    if q_pls.button("+", key=f"p_{p['id']}"):
+                        supabase.table("produkty").update({"liczba": p['liczba'] + 1}).eq("id", p['id']).execute()
                         st.rerun()
-                
-                # Statusy kolorowe
-                if p['liczba'] == 0:
-                    c_status.error("Brak")
-                elif p['liczba'] < 5:
-                    c_status.warning("Mało")
-                else:
-                    c_status.success("OK")
 
-                if c5.button("🗑️", key=f"del_{p['id']}"):
+                if p['liczba'] == 0: c_status.error("Brak")
+                elif p['liczba'] < 5: c_status.warning("Mało")
+                else: c_status.success("OK")
+
+                if c5.button("🗑️", key=f"d_{p['id']}"):
                     supabase.table("produkty").delete().eq("id", p['id']).execute()
+                    st.toast(f"Usunięto {p['nazwa']}")
                     st.rerun()
-        else:
-            st.info("Nie znaleziono produktów.")
 
-        # --- DODAWANIE PRODUKTU (EXPANDER) ---
-        st.divider()
-        with st.expander("➕ DODAJ NOWY PRODUKT"):
-            with st.form("add_form", clear_on_submit=True):
-                f1, f2 = st.columns(2)
-                name = f1.text_input("Nazwa produktu")
-                price = f1.number_input("Cena za sztukę", min_value=0.0, step=0.01)
-                qty = f2.number_input("Ilość na start", min_value=0, step=1)
-                cat = f2.selectbox("Kategoria", options=list(cat_map.values()) if cat_map else ["Brak"])
+        # Dodawanie produktu
+        st.markdown("---")
+        with st.expander("➕ Szybkie dodawanie"):
+            with st.form("light_add"):
+                n = st.text_input("Nazwa")
+                c1, c2, c3 = st.columns(3)
+                pr = c1.number_input("Cena", min_value=0.0)
+                qt = c2.number_input("Ilość", min_value=0)
+                kt = c3.selectbox("Kategoria", options=list(cat_map.values()))
                 
-                if st.form_submit_button("Zapisz w magazynie"):
-                    if name:
-                        c_id = [k for k, v in cat_map.items() if v == cat][0] if cat_map else None
-                        supabase.table("produkty").insert({
-                            "nazwa": name, "cena": price, "liczba": qty, "kategoria_id": c_id
-                        }).execute()
-                        st.success("Dodano!")
+                if st.form_submit_button("Zatwierdź"):
+                    if n:
+                        cid = [k for k, v in cat_map.items() if v == kt][0]
+                        supabase.table("produkty").insert({"nazwa": n, "cena": pr, "liczba": qt, "kategoria_id": cid}).execute()
+                        st.toast(f"Dodano {n}!", icon="✅")
                         st.rerun()
-                    else:
-                        st.error("Nazwa jest wymagana!")
 
     with tab2:
-        st.header("Zarządzanie kategoriami")
-        for cid, cname in cat_map.items():
-            cc1, cc2 = st.columns([5, 1])
-            cc1.write(f"📁 {cname}")
-            if cc2.button("Usuń", key=f"dc_{cid}"):
-                supabase.table("kategorie").delete().eq("id", cid).execute()
+        col_left, col_right = st.columns([2, 1])
+        with col_left:
+            for cid, cname in cat_map.items():
+                st.button(f"📁 {cname} (Usuń)", key=f"c_{cid}", on_click=lambda id=cid: supabase.table("kategorie").delete().eq("id", id).execute())
+        with col_right:
+            new_c = st.text_input("Nowa kategoria")
+            if st.button("Dodaj kategorię") and new_c:
+                supabase.table("kategorie").insert({"nazwa": new_c}).execute()
                 st.rerun()
-        
-        with st.form("new_cat"):
-            nc = st.text_input("Nazwa nowej kategorii")
-            if st.form_submit_button("Dodaj"):
-                if nc:
-                    supabase.table("kategorie").insert({"nazwa": nc}).execute()
-                    st.rerun()
+
+    with tab3:
+        st.subheader("Szybki podgląd stanów")
+        if products:
+            # Tworzymy dane do wykresu bez Pandasa
+            chart_data = {p['nazwa']: p['liczba'] for p in products}
+            st.bar_chart(chart_data)
+            
+            # Prosta lista kontrolna "Do zamówienia"
+            low_stock = [p['nazwa'] for p in products if p['liczba'] < 5]
+            if low_stock:
+                st.warning("⚠️ **Lista zakupowa (poniżej 5 szt.):**")
+                for item in low_stock:
+                    st.write(f"- {item}")
+        else:
+            st.info("Brak danych")
 
 except Exception as e:
-    st.error(f"Wystąpił błąd: {e}")
+    st.error(f"Coś poszło nie tak: {e}")
