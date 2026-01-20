@@ -6,6 +6,7 @@ URL = st.secrets["SUPABASE_URL"]
 KEY = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(URL, KEY)
 
+# --- FUNKCJA DYNAMICZNYCH KOLORÓW ---
 def get_product_color(nazwa):
     nazwa = nazwa.lower()
     skojarzenia = {
@@ -17,35 +18,38 @@ def get_product_color(nazwa):
         if klucz in nazwa: return kolor
     return "#BDC3C7"
 
+# --- KONFIGURACJA STRONY ---
 st.set_page_config(page_title="Magazyn Pro", layout="wide", page_icon="📦")
 
 try:
+    # Pobieranie danych
     products = supabase.table("produkty").select("*").order("id").execute().data
     categories = supabase.table("kategorie").select("*").execute().data
     cat_map = {c['id']: c['nazwa'] for c in categories}
 
     st.title("📦 System Magazynowy")
     
-    # Statystyki
+    # --- STATYSTYKI ---
     total_qty = sum(p['liczba'] for p in products) if products else 0
     total_val = sum(p['liczba'] * float(p['cena']) for p in products) if products else 0.0
     
     m1, m2, m3 = st.columns([1,1,1])
     m1.metric("Suma sztuk", f"{total_qty}")
-    m2.metric("Wartość", f"{total_val:,.2f} zł")
+    m2.metric("Wartość towaru", f"{total_val:,.2f} zł")
     m3.write(f"Zapełnienie: {total_qty}/1000")
     m3.progress(min(total_qty / 1000, 1.0))
 
     st.divider()
 
-    tab1, tab2 = st.tabs(["🛒 Inwentarz", "📂 Kategorie"])
+    # --- TABS (Dodano zakładkę Analityka) ---
+    tab1, tab2, tab3 = st.tabs(["🛒 Inwentarz", "📂 Kategorie", "📊 Analityka"])
 
     with tab1:
         search = st.text_input("🔍 Szukaj produktu...", "").lower()
         filtered = [p for p in products if search in p['nazwa'].lower()]
 
         if filtered:
-            # Rozkład kolumn: ID, Kolor, Nazwa, Kategoria, Cena, ILOŚĆ (szersza!), Status, Kosz
+            # Rozkład kolumn
             cols = st.columns([0.5, 0.4, 1.8, 1.2, 0.8, 1.8, 1, 0.5])
             headers = ["ID", "•", "Nazwa", "Kategoria", "Cena", "Zmień Ilość", "Status", ""]
             for col, h in zip(cols, headers): col.write(f"**{h}**")
@@ -62,7 +66,7 @@ try:
                 c_cat.markdown(f'<code style="font-size: 0.75rem;">{p_cat}</code>', unsafe_allow_html=True)
                 c3.write(f"{p['cena']} zł")
                 
-                # --- TUTAJ SĄ PRZYCISKI PLUS/MINUS ---
+                # Szybka edycja ilości (Plus / Minus)
                 with c4:
                     q_min, q_val, q_pls = st.columns([1, 1.2, 1])
                     if q_min.button("➖", key=f"btn_min_{p['id']}"):
@@ -91,14 +95,15 @@ try:
                 pr = f1.number_input("Cena", min_value=0.0)
                 qt = f2.number_input("Ilość", min_value=0)
                 kt = f3.selectbox("Kategoria", options=list(cat_map.values()) if cat_map else ["Brak"])
-                if st.form_submit_button("Dodaj"):
+                if st.form_submit_button("Zatwierdź i dodaj"):
                     if name and cat_map:
                         cid = [k for k, v in cat_map.items() if v == kt][0]
                         supabase.table("produkty").insert({"nazwa": name, "cena": pr, "liczba": qt, "kategoria_id": cid}).execute()
+                        st.toast(f"Dodano {name}")
                         st.rerun()
 
     with tab2:
-        st.subheader("Kategorie")
+        st.subheader("Zarządzanie Kategoriami")
         for cid, cname in cat_map.items():
             cx1, cx2 = st.columns([3,1])
             cx1.write(f"📂 {cname}")
@@ -107,11 +112,28 @@ try:
                 st.rerun()
         
         with st.form("new_c"):
-            nc = st.text_input("Nowa kategoria")
-            if st.form_submit_button("Dodaj"):
+            nc = st.text_input("Nazwa nowej kategorii")
+            if st.form_submit_button("Dodaj kategorię"):
                 if nc:
                     supabase.table("kategorie").insert({"nazwa": nc}).execute()
                     st.rerun()
 
+    with tab3:
+        st.subheader("📊 Stan magazynowy na wykresie")
+        if products:
+            # Tworzymy dane do wykresu: Słownik {Nazwa: Liczba}
+            # Streamlit automatycznie narysuje słupki dla tych danych
+            chart_data = {p['nazwa']: p['liczba'] for p in products}
+            
+            # Wyświetlenie wykresu
+            st.bar_chart(chart_data)
+            
+            # Dodatkowy podgląd wartościowy (opcjonalnie)
+            st.markdown("### 💰 Wartość zapasów (PLN)")
+            val_data = {p['nazwa']: (p['liczba'] * float(p['cena'])) for p in products}
+            st.area_chart(val_data)
+        else:
+            st.info("Dodaj produkty, aby zobaczyć wykresy.")
+
 except Exception as e:
-    st.error(f"Błąd: {e}")
+    st.error(f"Wystąpił błąd: {e}")
